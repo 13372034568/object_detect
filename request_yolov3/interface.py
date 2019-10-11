@@ -78,18 +78,26 @@ def process_function(input_size, model_result, f_items, p_id, g_lst=None, share_
 # {'host': '220.178.172.160', 'port': 58000, 'model_name': 'yolov3'},
 def g_options():
     grpc_options_cpu = [
-                           {'host': '192.168.0.159', 'port': 8000, 'model_name': 'yolov3'},
-                           {'host': '192.168.0.154', 'port': 8000, 'model_name': 'yolov3'},
+                           # {'host': '192.168.0.159', 'port': 8000, 'model_name': 'yolov3'},
+                           # {'host': '192.168.0.154', 'port': 8000, 'model_name': 'yolov3'},
+                           # {'host': '192.168.1.75', 'port': 8000, 'model_name': 'yolov3'},
                        ] * 1
     grpc_options_gpu = [
-                           {'host': '192.168.0.159', 'port': 8001, 'model_name': 'yolov3'},
-                           {'host': '192.168.0.154', 'port': 8001, 'model_name': 'yolov3'},
+                           # {'host': '192.168.0.159', 'port': 8001, 'model_name': 'yolov3'},
+                           # {'host': '192.168.0.154', 'port': 8001, 'model_name': 'yolov3'},
                        ] * 1
+    gprc_options_nginx = [
+                             # {'host': '192.168.0.154', 'port': 6666, 'model_name': 'yolov3'},
+                             {'host': '192.168.1.75', 'port': 8082, 'model_name': 'yolov3'},
+                         ] * 10
     grpc_options = []
     if grpc_options_cpu:
         grpc_options.extend(grpc_options_cpu)
     if grpc_options_gpu:
         grpc_options.extend(grpc_options_gpu)
+    if gprc_options_nginx:
+        grpc_options.clear()
+        grpc_options.extend(gprc_options_nginx)
     random.shuffle(grpc_options)
     grpc_cnt = len(grpc_options)
     return grpc_options, grpc_cnt
