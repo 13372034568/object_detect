@@ -28,13 +28,32 @@ x = tf.tile(tf.range(output_size, dtype=tf.int32)[tf.newaxis, :], [output_size, 
 xy_grid = tf.concat([x[:, :, tf.newaxis], y[:, :, tf.newaxis]], axis=-1)
 ```
 接下来是这部分代码的过程图示
-
 <div>
 <img src="./images/yolov3_decode代码中生成特征图单元格坐标矩阵代码解读过程图.jpg">
 <div>
-  
 ```
 xy_grid = tf.tile(xy_grid[tf.newaxis, :, :, tf.newaxis, :], [batch_size, 1, 1, anchor_per_scale, 1])
 xy_grid = tf.cast(xy_grid, tf.float32)
 这部分代码在单元格坐标矩阵基础上，将size扩展到与输入特征图一致，加入batch_size、anchors维度，但最后一个维度仍然存放单元格左上角坐标
+```
+```
+pred_xy = (tf.sigmoid(conv_raw_dxdy) + xy_grid) * stride
+激活函数对tx、ty处理后加上所属单元格左上角坐标cx、cy，但这里为什么要乘以stride，不是应该除以stride吗？？？
+```
+```
+pred_wh = (tf.exp(conv_raw_dwdh) * anchors) * stride
+tw、th指数后乘以预选框的pw、ph，但这里乘以stride同样疑问？？？
+```
+```
+pred_xywh = tf.concat([pred_xy, pred_wh], axis=-1)
+合并xywh
+```
+```
+pred_conf = tf.sigmoid(conv_raw_conf)
+pred_prob = tf.sigmoid(conv_raw_prob)
+对于80分类，没有使用softmax，而是对每个维度使用sigmod
+```
+```
+return tf.concat([pred_xywh, pred_conf, pred_prob], axis=-1)
+返回4+1+80=85个维度
 ```
