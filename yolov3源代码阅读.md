@@ -1,4 +1,4 @@
-# core/yolov3-->decode(self, conv_output, anchors, stride) 疑难点解读
+# 解读core/yolov3-->decode(self,conv_output,anchors,stride)
 
 conv_output：经过darknet53以及yoloblock卷积层特征提取后得到的8x8x255、16x16x255、32x32x255特征图的中的任意一个
 
