@@ -1,18 +1,20 @@
 ## 解读core/yolov3-->decode(self,conv_output,anchors,stride)
 ### 输入参数解释
- `conv_output `：经过darknet53以及yoloblock卷积层特征提取后得到的8x8x255、16x16x255、32x32x255特征图的中的任意一个
-
- `anchors `：预设的三种尺寸anchor中的一种，每一种包含三种宽高比
-
- `stride `：8、16、32中任意一个，即416x416输入图在输出时被缩放到的尺度
+ `conv_output `：经过darknet53以及yoloblock卷积层特征提取后得到的8x8x255、16x16x255、32x32x255特征图的中的任意一个<br>
+ `anchors `：预设的三种尺寸anchor中的一种，每一种包含三种宽高比<br>
+ `stride `：8、16、32中任意一个，即416x416输入图在输出时被缩放到的尺度<br>
 
 ### conv_output中特征图尺度、anchors、stride的对应关系
+ `本文中用stride=32, 尺度为8x8x256来举例 `
+<div>
+<img src="./images/convsize_stride_anchors_map.png">
+<div>
 
 * 这里的anchor_per_scale为3，即3种宽高比
 ```
 anchor_per_scale = len(anchors) 
 ```
-* conv_output原本是batch_sizex8x8x255(这里用8举例),本步操作将255拆成3部分，分别对应3个预选框, 每个维度85
+* conv_output原本是batch_sizex8x8x255,本步操作将255拆成3部分，分别对应3个预选框, 每个维度85
 ```
 conv_output = tf.reshape(conv_output, (batch_size, output_size, output_size, anchor_per_scale, 5 + self.num_class))
 ```
@@ -41,11 +43,11 @@ xy_grid = tf.concat([x[:, :, tf.newaxis], y[:, :, tf.newaxis]], axis=-1)
 xy_grid = tf.tile(xy_grid[tf.newaxis, :, :, tf.newaxis, :], [batch_size, 1, 1, anchor_per_scale, 1])
 xy_grid = tf.cast(xy_grid, tf.float32)
 ```
-* 激活函数对tx、ty处理后加上所属单元格左上角坐标cx、cy，但这里为什么要乘以stride，不是应该除以stride吗？？？
+* 激活函数对tx、ty处理后加上所属单元格左上角坐标cx、cy，但这里乘以stride应该是想把坐标转换到原始输入的尺度
 ```
 pred_xy = (tf.sigmoid(conv_raw_dxdy) + xy_grid) * stride
 ```
-* tw、th指数后乘以预选框的pw、ph，但这里乘以stride同样疑问？？？
+* tw、th指数后乘以预选框的pw、ph，但这里乘以stride应该是想把选择框的长宽转换到原始输入的尺度
 ```
 pred_wh = (tf.exp(conv_raw_dwdh) * anchors) * stride
 ```
