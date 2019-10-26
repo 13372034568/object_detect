@@ -28,5 +28,8 @@ x = tf.tile(tf.range(output_size, dtype=tf.int32)[tf.newaxis, :], [output_size, 
 xy_grid = tf.concat([x[:, :, tf.newaxis], y[:, :, tf.newaxis]], axis=-1)
 xy_grid = tf.tile(xy_grid[tf.newaxis, :, :, tf.newaxis, :], [batch_size, 1, 1, anchor_per_scale, 1])
 xy_grid = tf.cast(xy_grid, tf.float32)
-
 ```
+接下来是这部分代码的过程图示，针对第1~3行
+<div>
+<img src="./images/nvidia-smi.png">
+<div>
