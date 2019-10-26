@@ -31,5 +31,5 @@ xy_grid = tf.cast(xy_grid, tf.float32)
 ```
 接下来是这部分代码的过程图示，针对第1~3行
 <div>
-<img src="./images/nvidia-smi.png">
+<img src="./images/yolov3_decode代码中生成特征图单元格坐标矩阵代码解读过程图.jpg">
 <div>
