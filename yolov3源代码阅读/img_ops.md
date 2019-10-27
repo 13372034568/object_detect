@@ -38,7 +38,7 @@ def random_crop(self, image, bboxes):
     return image, bboxes
 ```
 
-### 先上代码，再看功能
+### 某种变换
 ```
 def random_translate(self, image, bboxes):
 
