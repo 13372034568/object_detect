@@ -126,7 +126,8 @@ def preprocess_true_boxes(self, bboxes):
         # 将box中的左上角坐标和右下角坐标变换为box的中心点和box的宽高
         bbox_xywh = np.concatenate([(bbox_coor[2:] + bbox_coor[:2]) * 0.5, bbox_coor[2:] - bbox_coor[:2]], axis=-1)
         
-        # 对box的中心点和宽高，缩放stride，至特征图尺度下
+        # 对box的中心点和宽高，缩放stride，至特征图尺度下，每种尺度下均生成一组缩放后的xywh向量
+        # 所以 bbox_xywh 的shape为一维长度为4的向量，而 bbox_xywh_scaled 的shape为 3x4 的二维向量，3指的是3中缩放尺度
         bbox_xywh_scaled = 1.0 * bbox_xywh[np.newaxis, :] / self.strides[:, np.newaxis]
 
         iou = []
@@ -136,7 +137,7 @@ def preprocess_true_boxes(self, bboxes):
         for i in range(3):
         
             # 每种缩放尺度下存在三种宽高比
-            # 针对单个检测框，在一个缩放尺度下，不同宽高比的anchor的坐标表示矩阵，初始化为0
+            # 针对单个检测框，在一个缩放尺度下，不同宽高比的anchor的坐标表示 3x4 二维向量，初始化为0
             anchors_xywh = np.zeros((self.anchor_per_scale, 4))
             
             # 使用特征图尺度下的box（当前缩放尺度）的中心点作为anchor的中心点
@@ -146,7 +147,7 @@ def preprocess_true_boxes(self, bboxes):
             anchors_xywh[:, 2:4] = self.anchors[i]
 
             # 对特征图尺度下的box（当前缩放尺度）和当前缩放尺度下的三个不同宽高比的anchor分别计算IOU
-            # iou_scale的shape为3
+            # iou_scale 的shape为3，比如 [0.1, 0.5, 0.7]
             iou_scale = self.bbox_iou(bbox_xywh_scaled[i][np.newaxis, :], anchors_xywh)
             iou.append(iou_scale)
             
@@ -186,7 +187,12 @@ def preprocess_true_boxes(self, bboxes):
 
                 exist_positive = True
 
+        # 如果三种缩放尺度下，box对每种宽高比的anchor都没有找到标注框和anchor的IOU大于阈值(0.3)满足的情况，则exist_positive为False
+        # 该情况下，就从存放iou_scale记录的iou中进行查找，iou存放了三种缩放尺度且每种缩放尺度的三种不同宽高比anchor与box的检测框计算的iou的三组结果，每组3个，共9个
+        # 该步骤的目的是对于一些比较奇异的标注框，单用anchor配合阈值无法覆盖，为了防止训练数据丢失，放宽了准入条件
         if not exist_positive:
+            
+            # 找出IOU最大的序号，在扁平化的数组中，并计算所属的缩放尺度序号、对应的宽高比序号，这两个序号用于在label中寻址
             best_anchor_ind = np.argmax(np.array(iou).reshape(-1), axis=-1)
             best_detect = int(best_anchor_ind / self.anchor_per_scale)
             best_anchor = int(best_anchor_ind % self.anchor_per_scale)
@@ -212,7 +218,47 @@ def preprocess_true_boxes(self, bboxes):
             bbox_ind = int(bbox_count[best_detect] % self.max_bbox_per_scale)
             bboxes_xywh[best_detect][bbox_ind, :4] = bbox_xywh
             bbox_count[best_detect] += 1
+    
+    # 将label拆分为3部分，每种缩放尺度对应一个label
+    # 最终label存放的是三类特征图网格中每个单元格的数据，数据包括选择框的中心点坐标和宽高（没有经过特征图缩放）、该单元格的置信度、类别平滑值
     label_sbbox, label_mbbox, label_lbbox = label
+    
+    # 将bboxes_xywh拆分为三部分，每种缩放尺度对应一个
+    # 最终bboxes_xywh存放的是每幅图片三类缩放尺度下所有检测框的中心点坐标和宽高（没有经过特征图缩放）
     sbboxes, mbboxes, lbboxes = bboxes_xywh
+    
     return label_sbbox, label_mbbox, label_lbbox, sbboxes, mbboxes, lbboxes
+```
+
+### Dataset/bbox_iou 计算检测框和三个宽高比的anchor的IOU
+用在了 preprocess_true_boxes 方法中
+```
+def bbox_iou(self, boxes1, boxes2):
+
+    boxes1 = np.array(boxes1)
+    boxes2 = np.array(boxes2)
+    
+    # 计算面积
+    boxes1_area = boxes1[..., 2] * boxes1[..., 3]
+    boxes2_area = boxes2[..., 2] * boxes2[..., 3]
+
+    # 分别计算左上角和右下角坐标
+    boxes1 = np.concatenate([boxes1[..., :2] - boxes1[..., 2:] * 0.5,
+                            boxes1[..., :2] + boxes1[..., 2:] * 0.5], axis=-1)
+    boxes2 = np.concatenate([boxes2[..., :2] - boxes2[..., 2:] * 0.5,
+                            boxes2[..., :2] + boxes2[..., 2:] * 0.5], axis=-1)
+    
+    # 计算检测框和每个宽高比的anchor的公共部分的左上角、右下角坐标
+    left_up = np.maximum(boxes1[..., :2], boxes2[..., :2])
+    right_down = np.minimum(boxes1[..., 2:], boxes2[..., 2:])
+
+    # 计算检测框和每个宽高比的anchor的公共部分宽高和面积
+    inter_section = np.maximum(right_down - left_up, 0.0)
+    inter_area = inter_section[..., 0] * inter_section[..., 1]
+    
+    # 计算并集的面积
+    union_area = boxes1_area + boxes2_area - inter_area
+
+    # 返回IOU
+    return inter_area / union_area
 ```
