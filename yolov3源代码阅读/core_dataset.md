@@ -91,35 +91,69 @@ def preprocess_true_boxes(self, bboxes):
 
     global error_cnt
 
+    # 针对三种缩放尺度8\16\32，定义三组向量，用于对网格中所有单元格进行信息记录，初始化为0，shape为
+    # label = [
+    #   [input_size/8,  input_size/8,  3, 85],
+    #   [input_size/16, input_size/16, 3, 85],
+    #   [input_size/32, input_size/32, 3, 85],
+    # ]
     label = [np.zeros((self.train_output_sizes[i], self.train_output_sizes[i], self.anchor_per_scale,
                        5 + self.num_classes)) for i in range(3)]
+    
+    # 针对三种缩放尺度8\16\32，定义三组向量，用于存储每种缩放尺度下最大数据的检测框数据，max_bbox_per_scale=150，shape为
+    # [
+    #   [150, 4],
+    #   [150, 4],
+    #   [150, 4],
+    # ]
     bboxes_xywh = [np.zeros((self.max_bbox_per_scale, 4)) for _ in range(3)]
+    
+    # bbox_count 用于记录每种缩放尺度下已产生的有效框的数量，该数字同时作为bboxes_xywh的下一个有效框的下标
     bbox_count = np.zeros((3,))
 
+    # 接下来对每个box进行处理，每次处理都要包含三种缩放尺度
     for bbox in bboxes:
         bbox_coor = bbox[:4]
         bbox_class_ind = bbox[4]
 
+        # 这部分对80个维度的分类进行了平滑操作，保证都不为0，且加和为1，且仍然突出被选中的类别
         onehot = np.zeros(self.num_classes, dtype=np.float)
         onehot[bbox_class_ind] = 1.0
         uniform_distribution = np.full(self.num_classes, 1.0 / self.num_classes)
         deta = 0.01
         smooth_onehot = onehot * (1 - deta) + deta * uniform_distribution
 
+        # 将box中的左上角坐标和右下角坐标变换为box的中心点和box的宽高
         bbox_xywh = np.concatenate([(bbox_coor[2:] + bbox_coor[:2]) * 0.5, bbox_coor[2:] - bbox_coor[:2]], axis=-1)
+        
+        # 对box的中心点和宽高，缩放stride，至特征图尺度下
         bbox_xywh_scaled = 1.0 * bbox_xywh[np.newaxis, :] / self.strides[:, np.newaxis]
 
         iou = []
         exist_positive = False
+        
+        # 对三种缩放尺度进行循环
         for i in range(3):
+        
+            # 每种缩放尺度下存在三种宽高比
+            # 针对单个检测框，在一个缩放尺度下，不同宽高比的anchor的坐标表示矩阵，初始化为0
             anchors_xywh = np.zeros((self.anchor_per_scale, 4))
+            
+            # 使用特征图尺度下的box（当前缩放尺度）的中心点作为anchor的中心点
             anchors_xywh[:, 0:2] = np.floor(bbox_xywh_scaled[i, 0:2]).astype(np.int32) + 0.5
+            
+            # 使用原始的anchor的宽高，这里正好回答了为什么使用basline_anchors.txt中的数据作为anchor，因为该数据已经被缩放到特征图尺度
             anchors_xywh[:, 2:4] = self.anchors[i]
 
+            # 对特征图尺度下的box（当前缩放尺度）和当前缩放尺度下的三个不同宽高比的anchor分别计算IOU
+            # iou_scale的shape为3
             iou_scale = self.bbox_iou(bbox_xywh_scaled[i][np.newaxis, :], anchors_xywh)
             iou.append(iou_scale)
+            
+            # iou_mask的shape为3, 比如[True, False, False], 表示的是第一种宽高比的IOU满足>0.3的要求
             iou_mask = iou_scale > 0.3
 
+            # 如果对于一个box，在一种缩放尺度下，存在满足条件的IOU，进行如下处理
             if np.any(iou_mask):
                 xind, yind = np.floor(bbox_xywh_scaled[i, 0:2]).astype(np.int32)
 
@@ -135,11 +169,17 @@ def preprocess_true_boxes(self, bboxes):
                     yind = y_cc - 1
                 # ------------
 
+                # 这里对label的赋值很有意思
+                # i 指的是第几种缩放尺度
+                # yind, xind 指的是box的中心点所属的单元格的横竖坐标
+                # iou_mask 这里是一个长度为 3 的bool数组，而label[i]的第三个维度大小为3，iou_mask中只有为True的维度，才进行赋值
                 label[i][yind, xind, iou_mask, :] = 0
                 label[i][yind, xind, iou_mask, 0:4] = bbox_xywh
                 label[i][yind, xind, iou_mask, 4:5] = 1.0
                 label[i][yind, xind, iou_mask, 5:] = smooth_onehot
 
+                # 计算当前box的序号bbox_ind
+                # 将box在特征图缩放前，网络定义输入尺度缩放、并计算出中心点和宽高后的bbox_xywh保存到bboxes_xywh中，在bboxes_xywh中位置用i和bbox_ind来指定
                 bbox_ind = int(bbox_count[i] % self.max_bbox_per_scale)
                 bboxes_xywh[i][bbox_ind, :4] = bbox_xywh
                 bbox_count[i] += 1
