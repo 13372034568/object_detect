@@ -25,4 +25,64 @@ coco_anchors.txt中的预选框是针对图片的原始尺寸，而basline_ancho
 ### 类别文件
 文件名：data/classes/coco.names，文件内容不展示，因为需要使用预训练模型，所以这里还是使用了原始的80分类，但将软笔书法作为ID=0的分类，覆盖原来的person分类；
 
+### Dataset 构造函数（挑重点的说）
+*  `self.train_input_sizes = cfg.TRAIN.INPUT_SIZE `，这里输入尺寸不止一个，训练过程中，每一轮中会随机挑选一个，如果训练的不多，很多尺寸就不会选择到，我们看下有哪些输入尺寸：`__C.TRAIN.INPUT_SIZE = [320, 352, 384, 416, 448, 480, 512, 544, 576, 608] `
 
+*  `self.max_bbox_per_scale = 150 `，设置了每个缩放尺度stride下，每种宽高比最多可以有150个选择框
+
+### Dataset 中的功能函数
+* random_horizontal_flip
+* random_crop
+* random_translate<br>
+这三个函数分别是随机镜像、随机裁剪、随机变换，代码在另外一个文件中已经说明，这里不再赘述
+
+### Dataset/parse_annotation 初步从文件中解析训练数据中的标注框
+重点在于image_preporcess这个函数，
+* 输入为：
+> `np.copy(image)` 原始图片的二进制数据 <br>
+> `[self.train_input_size, self.train_input_size]` 向量 [ 随机挑选的输入尺寸，随机挑选的输入尺寸 ] ，比如 
+```[416, 416]``` <br>
+> `np.copy(bboxes)` 标注框数据列表，比如
+```
+[
+ [296,844,345,893,0],
+ [566,120,609,163,0],
+ [71,855,106,890,0]
+]
+```
+
+### utils/image_preporcess 图像预处理
+```
+def image_preporcess(image, target_size, gt_boxes=None):
+    
+    image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB).astype(np.float32)
+    ih, iw    = target_size
+    h,  w, _  = image.shape
+    
+    # 因为原始图像不总是正方形，强行缩放会失真，故针对其中单条边缩放至网络定义的输入尺寸，另一条边保持宽高比进行缩放，保证图像能够在输入尺寸中完全显示即可
+    scale = min(iw/w, ih/h)
+    nw, nh  = int(scale * w), int(scale * h)
+    image_resized = cv2.resize(image, (nw, nh))
+    
+    # 对构造出的正方形输入区域进行颜色填充，并对其中的图像区域赋予图像像素值，空白区域保持填充色即可
+    image_paded = np.full(shape=[ih, iw, 3], fill_value=128.0)
+    dw, dh = (iw - nw) // 2, (ih-nh) // 2
+    image_paded[dh:nh+dh, dw:nw+dw, :] = image_resized
+    
+    # 将像素值归一化到0~1之间
+    image_paded = image_paded / 255.
+
+    if gt_boxes is None:
+        return image_paded
+
+    else:
+        # 此处重要，对选择框的左上角和右下角坐标进行缩放，缩放至网络定义的输入尺寸内
+        gt_boxes[:, [0, 2]] = gt_boxes[:, [0, 2]] * scale + dw
+        gt_boxes[:, [1, 3]] = gt_boxes[:, [1, 3]] * scale + dh
+        
+        return image_paded, gt_boxes
+```
+
+### Dataset/preprocess_true_boxes 训练数据标注框处理至groundTrues，供实际训练使用
+输入：经过上面所述的函数“parse_annotation”初步解析出来的bboxes，但这批bboxes的参数已经缩放至网络定义的输入尺寸范围内
+输出：label_sbbox, label_mbbox, label_lbbox, sbboxes, mbboxes, lbboxes
