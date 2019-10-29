@@ -7,5 +7,5 @@
 
 ## YOLOV3
 <div>
-<img src="../images/yolov3_structure.png">
+<img src="./images/yolov3_structure.png">
 <div>
